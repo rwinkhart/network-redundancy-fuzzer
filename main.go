@@ -18,16 +18,9 @@ var wg sync.WaitGroup
 
 func main() {
 	// 1. get all interfaces and their IPs
-	interfaceAddrs := getInterfacesAddrs()
+	subnetMap := getSubnetsInterfaces()
 
-	// TODO defer a function that will bring all interfaces back up before exiting
-
-	// 2. create a map of subnets to interfaces contained within the subnets
-	var subnetMap = make(map[string][]string)
-	for iface, ipMask := range interfaceAddrs {
-		_, subnet, _ := net.ParseCIDR(ipMask)
-		subnetMap[subnet.String()] = append(subnetMap[subnet.String()], iface)
-	}
+	// TODO 2. defer a function that will bring all interfaces back up before exiting
 
 	// 3. loop indefinitely, selecting random interfaces on the same subnet to bounce
 	for {
@@ -70,13 +63,12 @@ func main() {
 	}
 }
 
-// getInterfacesIPs returns a map of all non-loopback interfaces to their IPv4 addresses in CIDR notation
-func getInterfacesAddrs() map[string]string {
+// getInterfacesIPs returns a map of all subnets to slices of their associated interfaces
+func getSubnetsInterfaces() map[string][]string {
 	// get all interfaces
 	interfaces, _ := net.Interfaces()
 
-	// get all IPs for each interface
-	var interfaceAddrs = make(map[string]string)
+	var subnetInterfacesMap = make(map[string][]string) // track which interfaces belong to each subnet
 	for _, iface := range interfaces {
 		// ensure the interface is not a loopback
 		if !strings.HasPrefix(iface.Name, "lo") {
@@ -86,17 +78,17 @@ func getInterfacesAddrs() map[string]string {
 				firstAddr := addrs[0]
 
 				// separate the IP from the subnet mask
-				ip, _, _ := net.ParseCIDR(firstAddr.String())
+				ip, subnet, _ := net.ParseCIDR(firstAddr.String())
 
 				// ensure the IP is an IPv4 address
 				if net.ParseIP(ip.String()).To4() != nil {
-					// add the interface and IP to the map
-					interfaceAddrs[iface.Name] = firstAddr.String()
+					// add interface to its subnet in the map
+					subnetInterfacesMap[subnet.String()] = append(subnetInterfacesMap[subnet.String()], iface.Name)
 				}
 			}
 		}
 	}
-	return interfaceAddrs
+	return subnetInterfacesMap
 }
 
 // bounceInterfaceGO bounces the given interface and leaves it down for a specified amount of time
