@@ -25,7 +25,7 @@ const (
 func main() {
 	// 1. check environment variable for custom bounce time
 	var bounceSeconds time.Duration
-	if bounceSecondsString, present := os.LookupEnv("NRT_BOUNCE_SEC"); present {
+	if bounceSecondsString, present := os.LookupEnv("NRF_BOUNCE_SEC"); present {
 		bounceSecondsInt, _ := strconv.Atoi(bounceSecondsString)
 		bounceSeconds = time.Duration(bounceSecondsInt) * time.Second
 	} else {
