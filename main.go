@@ -16,6 +16,12 @@ import (
 // There is nothing stopping it from working on physical networks, however it would certainly create a mess of cabling
 // It must always be run as root (to be able to bounce interfaces)
 
+const (
+	ansiInterface = "\033[38;5;4m"
+	ansiSubnet    = "\033[38;5;3m"
+	ansiReset     = "\033[0m"
+)
+
 func main() {
 	// 1. check environment variable for custom bounce time
 	var bounceSeconds time.Duration
@@ -75,7 +81,7 @@ func main() {
 			}
 
 			// 4b. bounce each target interface to cause IP SLA reachability failure
-			fmt.Println("Bouncing", strings.Join(ifaceSlice, ", "), "in subnet", subnet, "with", bounceSeconds, "of downtime...")
+			fmt.Println("Bouncing", ansiInterface+strings.Join(ifaceSlice, ", ")+ansiReset, "in subnet", ansiSubnet+subnet+ansiReset, "with", bounceSeconds, "of downtime...")
 			bounceInterfaces(targetIfaceSlice, bounceSeconds)
 
 			// determine whether to reset the progress on subnets (25% chance)
