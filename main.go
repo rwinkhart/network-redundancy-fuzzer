@@ -9,16 +9,12 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
 // This is a simple program that allows for redundancy testing on virtualized networks
 // There is nothing stopping it from working on physical networks, however it would certainly create a mess of cabling
 // It must always be run as root (to be able to bounce interfaces)
-
-// create a wait group for tracking later concurrent goroutines
-var wg sync.WaitGroup
 
 func main() {
 	// 1. check environment variable for custom bounce time
@@ -49,8 +45,8 @@ func main() {
 	go func() {
 		<-signals // listen for interrupt signal
 		fmt.Println("\nExiting and resetting interfaces...")
-		resetInterfaces(totalIfaceSlice) // bring all interfaces back up
-		os.Exit(0)                       // exit the program
+		bounceInterfaces(totalIfaceSlice, 0) // bring all interfaces back up
+		os.Exit(0)                           // exit the program
 	}()
 
 	// 4. loop indefinitely, selecting random interfaces on the same subnet to bounce
@@ -78,13 +74,8 @@ func main() {
 				targetIfaceSlice = append(targetIfaceSlice, ifaceSlice[rand.IntN(ifaceSliceLength)])
 			}
 
-			// 4b. bounce each target interface to cause IP SLA failure, use goroutines to bounce interfaces concurrently
-			for _, iface := range targetIfaceSlice {
-				wg.Add(1)
-				go bounceInterfaceGO(iface, bounceSeconds)
-			}
-			// block execution until all goroutines (bounces) have completed
-			wg.Wait()
+			// 4b. bounce each target interface to cause IP SLA reachability failure
+			bounceInterfaces(targetIfaceSlice, bounceSeconds)
 
 			// determine whether to reset the progress on subnets (25% chance)
 			if rand.IntN(4) == 0 {
@@ -122,21 +113,23 @@ func getSubnetsInterfaces() map[string][]string {
 	return subnetInterfacesMap
 }
 
-// bounceInterfaceGO bounces the given interface and leaves it down for a specified amount of time
-// it is meant to be run as a goroutine
-func bounceInterfaceGO(ifaceName string, bounceSeconds time.Duration) {
-	defer wg.Done()
-	iface, _ := netlink.LinkByName(ifaceName)
-	err := netlink.LinkSetDown(iface)
-	if err != nil {
-		panic(err) // an error here likely indicates a need for privilege escalation
-	}
-	time.Sleep(bounceSeconds)
-	netlink.LinkSetUp(iface)
-}
+// bounceInterfaceGO bounces the given interfaces and leaves them down for a specified amount of time
+func bounceInterfaces(ifaceSlice []string, bounceSeconds time.Duration) {
+	// bring each interface down (if bouncing and not just resetting)
+	if bounceSeconds > 0 {
+		for _, ifaceName := range ifaceSlice {
+			iface, _ := netlink.LinkByName(ifaceName)
+			err := netlink.LinkSetDown(iface)
+			if err != nil {
+				panic(err) // an error here likely indicates a need for privilege escalation
+			}
+		}
 
-// resetInterfaces brings all interfaces in the given slice back up
-func resetInterfaces(ifaceSlice []string) {
+		// wait for the specified amount of time
+		time.Sleep(bounceSeconds)
+	}
+
+	// bring each interface back up
 	for _, ifaceName := range ifaceSlice {
 		iface, _ := netlink.LinkByName(ifaceName)
 		netlink.LinkSetUp(iface)
