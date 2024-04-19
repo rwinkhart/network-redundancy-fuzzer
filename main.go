@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -20,10 +21,19 @@ import (
 var wg sync.WaitGroup
 
 func main() {
-	// 1. get all interfaces and their IPs
+	// 1. check environment variable for custom bounce time
+	var bounceSeconds time.Duration
+	if bounceSecondsString, present := os.LookupEnv("NRT_BOUNCE_SEC"); present {
+		bounceSecondsInt, _ := strconv.Atoi(bounceSecondsString)
+		bounceSeconds = time.Duration(bounceSecondsInt) * time.Second
+	} else {
+		bounceSeconds = 20 * time.Second // default to 20-second bounce time
+	}
+
+	// 2. get all interfaces and their IPs
 	subnetMap := getSubnetsInterfaces()
 
-	// 2. bring all interfaces back up when the program exits
+	// 3. bring all interfaces back up when the program exits
 	// create a channel for handling interrupt signals
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt)
@@ -43,9 +53,9 @@ func main() {
 		os.Exit(0)                       // exit the program
 	}()
 
-	// 3. loop indefinitely, selecting random interfaces on the same subnet to bounce
+	// 4. loop indefinitely, selecting random interfaces on the same subnet to bounce
 	for {
-		// 3a. iterate over subnetMap (taking advantage of the unordered nature of maps for randomness) to determine which interfaces to bounce
+		// 4a. iterate over subnetMap (taking advantage of the unordered nature of maps for randomness) to determine which interfaces to bounce
 		for _, ifaceSlice := range subnetMap {
 
 			// track length of ifaceSlice
@@ -68,10 +78,10 @@ func main() {
 				targetIfaceSlice = append(targetIfaceSlice, ifaceSlice[rand.IntN(ifaceSliceLength)])
 			}
 
-			// 3b. bounce each target interface to cause IP SLA failure, use goroutines to bounce interfaces concurrently
+			// 4b. bounce each target interface to cause IP SLA failure, use goroutines to bounce interfaces concurrently
 			for _, iface := range targetIfaceSlice {
 				wg.Add(1)
-				go bounceInterfaceGO(iface, 20*time.Second) // TODO make bounce time configurable via environment variable
+				go bounceInterfaceGO(iface, bounceSeconds)
 			}
 			// block execution until all goroutines (bounces) have completed
 			wg.Wait()
