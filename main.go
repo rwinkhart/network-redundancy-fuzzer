@@ -81,7 +81,7 @@ func main() {
 			}
 
 			// 4b. bounce each target interface to cause IP SLA reachability failure
-			fmt.Println("Bouncing", ansiInterface+strings.Join(ifaceSlice, ", ")+ansiReset, "in subnet", ansiSubnet+subnet+ansiReset, "with", bounceSeconds, "of downtime...")
+			fmt.Println("Bouncing", ansiInterface+strings.Join(targetIfaceSlice, ", ")+ansiReset, "in subnet", ansiSubnet+subnet+ansiReset, "with", bounceSeconds, "of downtime...")
 			bounceInterfaces(targetIfaceSlice, bounceSeconds)
 
 			// determine whether to reset the progress on subnets (25% chance)
