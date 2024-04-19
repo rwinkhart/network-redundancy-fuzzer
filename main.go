@@ -9,10 +9,9 @@ import (
 	"time"
 )
 
-// This is a simple program that allows for redundancy testing on simulated networks
-// It currently only supports IPv4 network interfacing, however it can still be used on largely IPv6 networks
-// This program is intended to run under a specific environment and may not work in more general situations
-// It should always be run as root (to modify network configuration)
+// This is a simple program that allows for redundancy testing on virtualized networks
+// There is nothing stopping it from working on physical networks, however it would certainly create a mess of cabling
+// It must always be run as root (to be able to bounce interfaces)
 
 // create a wait group for tracking later concurrent goroutines
 var wg sync.WaitGroup
@@ -71,7 +70,7 @@ func main() {
 	}
 }
 
-// getInterfacesIPs returns a list of all (eth*) interfaces and their IPv4 addresses TODO only discriminate against loopback interfaces
+// getInterfacesIPs returns a map of all non-loopback interfaces to their IPv4 addresses in CIDR notation
 func getInterfacesAddrs() map[string]string {
 	// get all interfaces
 	interfaces, _ := net.Interfaces()
@@ -79,8 +78,8 @@ func getInterfacesAddrs() map[string]string {
 	// get all IPs for each interface
 	var interfaceAddrs = make(map[string]string)
 	for _, iface := range interfaces {
-		// ensure the interface begins with "eth"
-		if strings.HasPrefix(iface.Name, "eth") {
+		// ensure the interface is not a loopback
+		if !strings.HasPrefix(iface.Name, "lo") {
 			// get all IPs for the interface
 			addrs, _ := iface.Addrs()
 			for _, addr := range addrs {
