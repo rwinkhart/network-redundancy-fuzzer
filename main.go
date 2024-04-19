@@ -1,9 +1,12 @@
 package main
 
 import (
+	"fmt"
 	"github.com/vishvananda/netlink"
 	"math/rand/v2"
 	"net"
+	"os"
+	"os/signal"
 	"strings"
 	"sync"
 	"time"
@@ -20,7 +23,25 @@ func main() {
 	// 1. get all interfaces and their IPs
 	subnetMap := getSubnetsInterfaces()
 
-	// TODO 2. defer a function that will bring all interfaces back up before exiting
+	// 2. bring all interfaces back up when the program exits
+	// create a channel for handling interrupt signals
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt)
+
+	// create a slice of all interfaces that may need brought back up
+	var totalIfaceSlice []string
+	for _, ifaceSlice := range subnetMap {
+		for _, iface := range ifaceSlice {
+			totalIfaceSlice = append(totalIfaceSlice, iface)
+		}
+	}
+	// use a goroutine to listen for interrupt signals and reset interfaces
+	go func() {
+		<-signals // listen for interrupt signal
+		fmt.Println("\nExiting and resetting interfaces...")
+		resetInterfaces(totalIfaceSlice) // bring all interfaces back up
+		os.Exit(0)                       // exit the program
+	}()
 
 	// 3. loop indefinitely, selecting random interfaces on the same subnet to bounce
 	for {
@@ -102,4 +123,12 @@ func bounceInterfaceGO(ifaceName string, bounceSeconds time.Duration) {
 	}
 	time.Sleep(bounceSeconds)
 	netlink.LinkSetUp(iface)
+}
+
+// resetInterfaces brings all interfaces in the given slice back up
+func resetInterfaces(ifaceSlice []string) {
+	for _, ifaceName := range ifaceSlice {
+		iface, _ := netlink.LinkByName(ifaceName)
+		netlink.LinkSetUp(iface)
+	}
 }
