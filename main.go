@@ -52,7 +52,7 @@ func main() {
 	// 4. loop indefinitely, selecting random interfaces on the same subnet to bounce
 	for {
 		// 4a. iterate over subnetMap (taking advantage of the unordered nature of maps for randomness) to determine which interfaces to bounce
-		for _, ifaceSlice := range subnetMap {
+		for subnet, ifaceSlice := range subnetMap {
 
 			// track length of ifaceSlice
 			ifaceSliceLength := len(ifaceSlice)
@@ -75,6 +75,7 @@ func main() {
 			}
 
 			// 4b. bounce each target interface to cause IP SLA reachability failure
+			fmt.Println("Bouncing", strings.Join(ifaceSlice, ", "), "in subnet", subnet, "with", bounceSeconds, "of downtime...")
 			bounceInterfaces(targetIfaceSlice, bounceSeconds)
 
 			// determine whether to reset the progress on subnets (25% chance)
