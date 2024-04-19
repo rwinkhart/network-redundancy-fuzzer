@@ -80,15 +80,18 @@ func getInterfacesAddrs() map[string]string {
 	for _, iface := range interfaces {
 		// ensure the interface is not a loopback
 		if !strings.HasPrefix(iface.Name, "lo") {
-			// get all IPs for the interface
+			// get the first IP for the interface
 			addrs, _ := iface.Addrs()
-			for _, addr := range addrs {
+			if len(addrs) > 0 {
+				firstAddr := addrs[0]
+
 				// separate the IP from the subnet mask
-				ip, _, _ := net.ParseCIDR(addr.String())
+				ip, _, _ := net.ParseCIDR(firstAddr.String())
+
 				// ensure the IP is an IPv4 address
 				if net.ParseIP(ip.String()).To4() != nil {
-					// add the interface and IP to the list
-					interfaceAddrs[iface.Name] = addr.String()
+					// add the interface and IP to the map
+					interfaceAddrs[iface.Name] = firstAddr.String()
 				}
 			}
 		}
