@@ -1,6 +1,4 @@
-//go:build gateway
-
-package main
+package extra
 
 import (
 	"github.com/vishvananda/netlink"
