@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/vishvananda/netlink"
+	"math/big"
 	"math/rand/v2"
 	"net"
 	"os"
@@ -138,6 +139,21 @@ func getSubnetsInterfaces() map[string][]map[string]string {
 		}
 	}
 
+	// iterate over the subnets and their associated interfaces
+	for subnet, ifIPSlice := range subnetInterfacesMap {
+		// track last reserved end-device IP
+		networkNumber, _, _ := net.ParseCIDR(subnet)
+		var lastReservedIP = getNextIP(networkNumber) // increment the IP to be one greater than the network number
+
+		// iterate over the interface to IP maps in the subnet
+		for i, ifIPMap := range ifIPSlice {
+			for ifaceName := range ifIPMap {
+				// set the end-device IP for the interface
+				lastReservedIP = getNextIP(lastReservedIP)
+				subnetInterfacesMap[subnet][i][ifaceName] = lastReservedIP.String()
+			}
+		}
+	}
 	return subnetInterfacesMap
 }
 
@@ -147,7 +163,10 @@ func bounceInterfaces(ifaceSlice []string, bounceSeconds time.Duration) {
 	if bounceSeconds > 0 {
 		for _, ifaceName := range ifaceSlice {
 			iface, _ := netlink.LinkByName(ifaceName)
-			netlink.LinkSetDown(iface)
+			err := netlink.LinkSetDown(iface)
+			if err != nil {
+				panic(err) // will error without privilege escalation, will be first error of this type encountered and thus is the only one handled
+			}
 		}
 
 		// wait for the specified amount of time
@@ -159,4 +178,14 @@ func bounceInterfaces(ifaceSlice []string, bounceSeconds time.Duration) {
 		iface, _ := netlink.LinkByName(ifaceName)
 		netlink.LinkSetUp(iface)
 	}
+}
+
+// getNextIP returns the next IP in the subnet after the provided IP
+func getNextIP(ip net.IP) net.IP {
+	ipInt := big.NewInt(0)
+	ipInt.SetBytes(ip.To4())
+	ipInt.Add(ipInt, big.NewInt(1))
+	nextIP := net.IP(ipInt.Bytes())
+	// TODO ensure nextIP is not a network number, broadcast address, and that it is part of the specified subnet
+	return nextIP
 }
