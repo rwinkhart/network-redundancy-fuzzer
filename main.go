@@ -16,6 +16,9 @@ import (
 // There is nothing stopping it from working on physical networks, however it would certainly create a mess of cabling
 // It must always be run as root (to be able to bounce interfaces)
 
+// TODO Current limitations:
+// Takes over all non-loopback interfaces and clears all routes for them - in order to allow the server running NRF to be multi-purpose, add an environment variable to specify excluded interfaces
+
 const (
 	ansiInterface = "\033[38;5;4m"
 	ansiSubnet    = "\033[38;5;3m"
@@ -32,7 +35,7 @@ func main() {
 		bounceSeconds = 20 * time.Second // default to 20-second bounce time
 	}
 
-	// 2. get all interfaces and their IPs
+	// 2. get all subnets and their associated interfaces
 	subnetMap := getSubnetsInterfaces()
 
 	// 3. bring all interfaces back up when the program exits
@@ -42,11 +45,14 @@ func main() {
 
 	// create a slice of all interfaces that may need brought back up
 	var totalIfaceSlice []string
-	for _, ifaceSlice := range subnetMap {
-		for _, iface := range ifaceSlice {
-			totalIfaceSlice = append(totalIfaceSlice, iface)
+	for _, ifIPSlice := range subnetMap {
+		for _, ifIPMap := range ifIPSlice {
+			for ifaceName := range ifIPMap {
+				totalIfaceSlice = append(totalIfaceSlice, ifaceName)
+			}
 		}
 	}
+
 	// use a goroutine to listen for interrupt signals and reset interfaces
 	go func() {
 		<-signals // listen for interrupt signal
@@ -58,26 +64,34 @@ func main() {
 	// 4. loop indefinitely, selecting random interfaces on the same subnet to bounce
 	for {
 		// 4a. iterate over subnetMap (taking advantage of the unordered nature of maps for randomness) to determine which interfaces to bounce
-		for subnet, ifaceSlice := range subnetMap {
+		for subnet, ifIPSlice := range subnetMap {
 
-			// track length of ifaceSlice
-			ifaceSliceLength := len(ifaceSlice)
+			// track length of ifIPSlice (number of interfaces in the subnet)
+			ifIPSliceLength := len(ifIPSlice)
 
 			// track target interfaces
 			var targetIfaceSlice []string
 
+			// create a slice of all interfaces in the subnet
+			var validInterfaces []string
+			for _, ifIPMap := range ifIPSlice {
+				for ifaceName := range ifIPMap {
+					validInterfaces = append(validInterfaces, ifaceName)
+				}
+			}
+
 			// select a random set of valid interfaces (within the current subnet) to bounce
-			for i := range ifaceSliceLength {
+			for i := range ifIPSliceLength {
 				// determine whether to add current interface to targetIfaceSlice (50% chance)
 				if rand.IntN(2) == 0 {
 					// add the interface to the targetIfaceSlice
-					targetIfaceSlice = append(targetIfaceSlice, ifaceSlice[i])
+					targetIfaceSlice = append(targetIfaceSlice, validInterfaces[i])
 				}
 			}
 
 			// ensure at least one interface is selected
 			if len(targetIfaceSlice) < 1 {
-				targetIfaceSlice = append(targetIfaceSlice, ifaceSlice[rand.IntN(ifaceSliceLength)])
+				targetIfaceSlice = append(targetIfaceSlice, validInterfaces[rand.IntN(ifIPSliceLength)])
 			}
 
 			// 4b. bounce each target interface to cause IP SLA reachability failure
@@ -92,15 +106,20 @@ func main() {
 	}
 }
 
-// getInterfacesIPs returns a map of all subnets to slices of their associated interfaces
-func getSubnetsInterfaces() map[string][]string {
+// getInterfacesIPs returns a map of all subnets to slices of their associated interfaces paired with designated IPs for the end devices
+func getSubnetsInterfaces() map[string][]map[string]string {
 	// get all interfaces
 	interfaces, _ := net.Interfaces()
 
-	var subnetInterfacesMap = make(map[string][]string) // track which interfaces belong to each subnet
+	// create a map of subnets to slices of maps of interfaces to end-device IPs
+	var subnetInterfacesMap = make(map[string][]map[string]string)
+
+	// iterate over all interfaces
 	for _, iface := range interfaces {
+
 		// ensure the interface is not a loopback
 		if !strings.HasPrefix(iface.Name, "lo") {
+
 			// get the first IP for the interface
 			addrs, _ := iface.Addrs()
 			if len(addrs) > 0 {
@@ -111,12 +130,14 @@ func getSubnetsInterfaces() map[string][]string {
 
 				// ensure the IP is an IPv4 address
 				if net.ParseIP(ip.String()).To4() != nil {
-					// add interface to its subnet in the map
-					subnetInterfacesMap[subnet.String()] = append(subnetInterfacesMap[subnet.String()], iface.Name)
+
+					// add interface to its subnet in the map (reserve a space for the end-device IP)
+					subnetInterfacesMap[subnet.String()] = append(subnetInterfacesMap[subnet.String()], map[string]string{iface.Name: ""})
 				}
 			}
 		}
 	}
+
 	return subnetInterfacesMap
 }
 
@@ -126,10 +147,7 @@ func bounceInterfaces(ifaceSlice []string, bounceSeconds time.Duration) {
 	if bounceSeconds > 0 {
 		for _, ifaceName := range ifaceSlice {
 			iface, _ := netlink.LinkByName(ifaceName)
-			err := netlink.LinkSetDown(iface)
-			if err != nil {
-				panic(err) // an error here likely indicates a need for privilege escalation
-			}
+			netlink.LinkSetDown(iface)
 		}
 
 		// wait for the specified amount of time
