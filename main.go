@@ -37,35 +37,37 @@ func main() {
 	}
 
 	// 2. get all subnets and their associated interfaces
-	subnetMap := getSubnetsInterfaces()
+	subnetInterfacesMap := getSubnetsInterfaces()
 
-	// 3. bring all interfaces back up when the program exits
-	// create a channel for handling interrupt signals
-	signals := make(chan os.Signal, 1)
-	signal.Notify(signals, os.Interrupt)
-
-	// create a slice of all interfaces that may need brought back up
+	// 3. set up initial routes for all interfaces
+	// create a slice of all interfaces being manipulated
 	var totalIfaceSlice []string
-	for _, ifIPSlice := range subnetMap {
+	for _, ifIPSlice := range subnetInterfacesMap {
 		for _, ifIPMap := range ifIPSlice {
 			for ifaceName := range ifIPMap {
 				totalIfaceSlice = append(totalIfaceSlice, ifaceName)
+				setStaticRoute(ifaceName, ifIPMap[ifaceName]) // set the initial route for the interface
 			}
 		}
 	}
+
+	// 4. prepare to bring all interfaces back up when the program exits
+	// create a channel for handling interrupt signals
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt)
 
 	// use a goroutine to listen for interrupt signals and reset interfaces
 	go func() {
 		<-signals // listen for interrupt signal
 		fmt.Println("\nExiting and resetting interfaces...")
-		bounceInterfaces(totalIfaceSlice, 0) // bring all interfaces back up
+		bounceInterfaces(totalIfaceSlice, 0) // quickly bounce all interfaces (clears routes, leaves in working state)
 		os.Exit(0)                           // exit the program
 	}()
 
-	// 4. loop indefinitely, selecting random interfaces on the same subnet to bounce
+	// 5. loop indefinitely, selecting random interfaces on the same subnet to bounce
 	for {
-		// 4a. iterate over subnetMap (taking advantage of the unordered nature of maps for randomness) to determine which interfaces to bounce
-		for subnet, ifIPSlice := range subnetMap {
+		// 5a. iterate over subnetMap (taking advantage of the unordered nature of maps for randomness) to determine which interfaces to bounce
+		for subnet, ifIPSlice := range subnetInterfacesMap {
 
 			// track length of ifIPSlice (number of interfaces in the subnet)
 			ifIPSliceLength := len(ifIPSlice)
@@ -95,9 +97,14 @@ func main() {
 				targetIfaceSlice = append(targetIfaceSlice, validInterfaces[rand.IntN(ifIPSliceLength)])
 			}
 
-			// 4b. bounce each target interface to cause IP SLA reachability failure
+			// 5b. bounce each target interface to cause IP SLA reachability failure
 			fmt.Println("Bouncing", ansiInterface+strings.Join(targetIfaceSlice, ", ")+ansiReset, "in subnet", ansiSubnet+subnet+ansiReset, "with", bounceSeconds, "of downtime...")
 			bounceInterfaces(targetIfaceSlice, bounceSeconds)
+
+			// 5c. fix static routes for all interfaces in the subnet (not just the ones that were bounced, makes navigating map easier)
+			for i, ifaceName := range validInterfaces {
+				setStaticRoute(ifaceName, ifIPSlice[i][ifaceName])
+			}
 
 			// determine whether to reset the progress on subnets (25% chance)
 			if rand.IntN(4) == 0 {
@@ -157,19 +164,19 @@ func getSubnetsInterfaces() map[string][]map[string]string {
 	return subnetInterfacesMap
 }
 
-// bounceInterfaceGO bounces the given interfaces and leaves them down for a specified amount of time
+// bounceInterfaces bounces the given interfaces and leaves them down for a specified amount of time
 func bounceInterfaces(ifaceSlice []string, bounceSeconds time.Duration) {
-	// bring each interface down (if bouncing and not just resetting)
-	if bounceSeconds > 0 {
-		for _, ifaceName := range ifaceSlice {
-			iface, _ := netlink.LinkByName(ifaceName)
-			err := netlink.LinkSetDown(iface)
-			if err != nil {
-				panic(err) // will error without privilege escalation, will be first error of this type encountered and thus is the only one handled
-			}
+	// bring each interface down
+	for _, ifaceName := range ifaceSlice {
+		iface, _ := netlink.LinkByName(ifaceName)
+		err := netlink.LinkSetDown(iface)
+		if err != nil {
+			panic(err) // will error without privilege escalation, will be first error of this type encountered and thus is the only one handled
 		}
+	}
 
-		// wait for the specified amount of time
+	// wait for the specified amount of time
+	if bounceSeconds > 0 {
 		time.Sleep(bounceSeconds)
 	}
 
@@ -188,4 +195,35 @@ func getNextIP(ip net.IP) net.IP {
 	nextIP := net.IP(ipInt.Bytes())
 	// TODO ensure nextIP is not a network number, broadcast address, and that it is part of the specified subnet
 	return nextIP
+}
+
+// setStaticRoute replaces pre-existing routes for an interface with a static route to the device participating in redundancy testing
+// set IP to an empty string to remove all routes for the interface without replacing them
+func setStaticRoute(ifaceName string, ip string) {
+
+	// get the interface by name
+	iface, _ := netlink.LinkByName(ifaceName)
+
+	// remove all pre-existing routes for the interface
+	existingRoutes, _ := netlink.RouteList(iface, netlink.FAMILY_V4)
+	for _, route := range existingRoutes {
+		netlink.RouteDel(&route)
+	}
+
+	if ip == "" {
+		return // no IP indicates that routes should be cleared without being replaced
+	}
+
+	// create a new static route for the interface with the determined IP
+	staticRoute := netlink.Route{
+		LinkIndex: iface.Attrs().Index,
+		Dst: &net.IPNet{
+			IP:   net.ParseIP(ip),
+			Mask: net.CIDRMask(32, 32),
+		},
+		Scope: netlink.SCOPE_LINK,
+	}
+
+	// add the new static route for the interface
+	netlink.RouteAdd(&staticRoute)
 }
