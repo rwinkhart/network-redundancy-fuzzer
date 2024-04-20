@@ -27,13 +27,23 @@ const (
 )
 
 func main() {
+	// if routes flag was provided, just set the static routes and exit
+	var flag string
+	if len(os.Args) > 1 {
+		flag = os.Args[1]
+	} else {
+		flag = ""
+	}
+
 	// 1. check environment variable for custom bounce time
 	var bounceSeconds time.Duration
-	if bounceSecondsString, present := os.LookupEnv("NRF_BOUNCE_SEC"); present {
-		bounceSecondsInt, _ := strconv.Atoi(bounceSecondsString)
-		bounceSeconds = time.Duration(bounceSecondsInt) * time.Second
-	} else {
-		bounceSeconds = 20 * time.Second // default to 20-second bounce time
+	if flag != "--routes" {
+		if bounceSecondsString, present := os.LookupEnv("NRF_BOUNCE_SEC"); present {
+			bounceSecondsInt, _ := strconv.Atoi(bounceSecondsString)
+			bounceSeconds = time.Duration(bounceSecondsInt) * time.Second
+		} else {
+			bounceSeconds = 20 * time.Second // default to 20-second bounce time
+		}
 	}
 
 	// 2. get all subnets and their associated interfaces
@@ -46,9 +56,14 @@ func main() {
 		for _, ifIPMap := range ifIPSlice {
 			for ifaceName := range ifIPMap {
 				totalIfaceSlice = append(totalIfaceSlice, ifaceName)
+				bounceInterfaces(totalIfaceSlice, 0)          // ensure all interfaces are up
 				setStaticRoute(ifaceName, ifIPMap[ifaceName]) // set the initial route for the interface
 			}
 		}
+	}
+
+	if flag == "--routes" {
+		os.Exit(0) // exit after routes have been set
 	}
 
 	// 4. prepare to bring all interfaces back up when the program exits
@@ -179,7 +194,7 @@ func bounceInterfaces(ifaceSlice []string, bounceSeconds time.Duration) {
 			iface, _ := netlink.LinkByName(ifaceName)
 			err := netlink.LinkSetDown(iface)
 			if err != nil {
-				panic(err) // will error without privilege escalation, will be first error of this type encountered and thus is the only one handled
+				panic(err) // will error without privilege escalation, may be first error of this type encountered and thus must be handled
 			}
 		}
 
@@ -190,7 +205,10 @@ func bounceInterfaces(ifaceSlice []string, bounceSeconds time.Duration) {
 	// bring each interface back up
 	for _, ifaceName := range ifaceSlice {
 		iface, _ := netlink.LinkByName(ifaceName)
-		netlink.LinkSetUp(iface)
+		err := netlink.LinkSetUp(iface)
+		if err != nil {
+			panic(err) // will error without privilege escalation, may be first error of this type encountered and thus must be handled
+		}
 	}
 }
 
