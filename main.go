@@ -60,8 +60,15 @@ func main() {
 	go func() {
 		<-signals // listen for interrupt signal
 		fmt.Println("\nExiting and resetting interfaces...")
-		bounceInterfaces(totalIfaceSlice, 0) // quickly bounce all interfaces (clears routes, leaves in working state)
-		os.Exit(0)                           // exit the program
+		bounceInterfaces(totalIfaceSlice, 0) // ensure all interfaces are up
+		for _, ifIPSlice := range subnetInterfacesMap {
+			for _, ifIPMap := range ifIPSlice {
+				for ifaceName := range ifIPMap {
+					setStaticRoute(ifaceName, ifIPMap[ifaceName]) // leave each interface with a working static route
+				}
+			}
+		}
+		os.Exit(0) // exit the program
 	}()
 
 	// 5. loop indefinitely, selecting random interfaces on the same subnet to bounce
@@ -166,17 +173,17 @@ func getSubnetsInterfaces() map[string][]map[string]string {
 
 // bounceInterfaces bounces the given interfaces and leaves them down for a specified amount of time
 func bounceInterfaces(ifaceSlice []string, bounceSeconds time.Duration) {
-	// bring each interface down
-	for _, ifaceName := range ifaceSlice {
-		iface, _ := netlink.LinkByName(ifaceName)
-		err := netlink.LinkSetDown(iface)
-		if err != nil {
-			panic(err) // will error without privilege escalation, will be first error of this type encountered and thus is the only one handled
-		}
-	}
-
-	// wait for the specified amount of time
+	// bring each interface down (if fully bouncing interfaces)
 	if bounceSeconds > 0 {
+		for _, ifaceName := range ifaceSlice {
+			iface, _ := netlink.LinkByName(ifaceName)
+			err := netlink.LinkSetDown(iface)
+			if err != nil {
+				panic(err) // will error without privilege escalation, will be first error of this type encountered and thus is the only one handled
+			}
+		}
+
+		// wait for the specified amount of time
 		time.Sleep(bounceSeconds)
 	}
 
