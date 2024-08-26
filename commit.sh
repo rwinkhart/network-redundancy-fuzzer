@@ -1,5 +1,4 @@
 #!/bin/sh
 gofmt -l -w -s ./*.go
-git add -f .gitignore commit.sh go.mod go.sum LICENSE main.go README.md
-git commit -m "$1"
+git commit -am "$1"
 git push
