@@ -29,7 +29,7 @@ Each device participating in redundancy fuzzing must have a link back to the ser
 
 On Cisco devices, set up IP SLA to send icmp-echo requests to the server running NRF. The network devices should be configured to disable links if the server is unreachable, thus simulating failure.
 
-On Arista devices, configure [nrf-client-emulator](https://github.com/rwinkhart/nrf-client-emulator).
+On Arista and MikroTik devices, configure [nrf-client-emulator](https://github.com/rwinkhart/nrf-client-emulator).
 
 ### Cisco IP SLA Template
 Note that the below example checks logs to know when interface status changes.
